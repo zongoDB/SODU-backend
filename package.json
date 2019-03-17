@@ -2,7 +2,7 @@
   "main": "app.js",
   "dependencies": {
     "firebase-admin": "^7.0.0",
-    "gps":  "^0.5.1",
-    "firebase-functions": "^2.2.0" 
+    "gps": "^0.5.1",
+    "firebase-functions": "^2.2.0"
   }
 }
