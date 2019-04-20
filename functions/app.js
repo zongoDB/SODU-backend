@@ -4,8 +4,12 @@ const functions = require('firebase-functions');
 var GPS = require('gps');
 var gps = new GPS;
 
+var rp = require('request-promise');
+
 admin.initializeApp(functions.config().firebase);
 var db = admin.firestore();
+
+disatnceMatrixAPIKey = 'AIzaSyDvcgX93U8CFCp3Bn6_y8U-Q1e1EFbcPko';
 
 /**
  * HTTP Cloud Function.
@@ -74,16 +78,41 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
       });
     }
     else{
-       /* if distance greater 0.35 km distance between hall 7 and conti roundabout*/
-      if ( GPS.Distance(oldLocation.latitude, oldLocation.longitude, gpsData.lat, gpsData.lon) >= 0.35 ){
 
-        
-        await vehicleDocRef.update(newData)
-        .catch( (error) => {
-          console.log(error);
-          res.sendStatus(500);
-        });
+      var options = {
+          uri: 'https://maps.googleapis.com/maps/api/distancematrix/json',
+          qs: {
+            origins: gpsData.lat + ',' + gpsData.lon,
+            destinations: oldLocation.latitude + ','+ oldLocation.longitude,
+            mode: 'driving',
+            language: 'en',
+            key: disatnceMatrixAPIKey
+          },
+          json: true // Automatically parses the JSON string in the response
+      };
+     
+      distanceMatrixResponse = await rp(options)
+      .catch( (error) => {
+        console.log(error);
+        res.sendStatus(500);
+      });
+
+      distanceMatrixElement = distanceMatrixResponse.rows[0].elements[0];
+
+      if( distanceMatrixElement.status == 'OK'){
+        /* if distance greater 350m (distance between hall 7 and conti roundabout) */
+        if( distanceMatrixElement.distance.value >= 350 ){
+          await vehicleDocRef.update(newData)
+          .catch( (error) => {
+            console.log(error);
+            res.sendStatus(500);
+          });
+        }
       }
+      else{
+        res.sendStatus(500);
+      }
+
     }
 
     res.sendStatus(200);
