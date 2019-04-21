@@ -5,11 +5,10 @@ var GPS = require('gps');
 var gps = new GPS;
 
 var rp = require('request-promise');
+disatnceMatrixAPIKey = 'AIzaSyDvcgX93U8CFCp3Bn6_y8U-Q1e1EFbcPko';
 
 admin.initializeApp(functions.config().firebase);
 var db = admin.firestore();
-
-disatnceMatrixAPIKey = 'AIzaSyDvcgX93U8CFCp3Bn6_y8U-Q1e1EFbcPko';
 
 /**
  * HTTP Cloud Function.
@@ -25,6 +24,13 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
   seatMask = parseInt(req.body.seat_mask, 10);
   soduID = req.body.ID;
 
+  resStatus = 200;
+
+  if( gpsSentence == null || seatMask == null || soduID == null){
+    res.sendStatus(500);
+    return;
+  }
+
   gpsPromise = new Promise(async (resolve, reject) => {
     setTimeout(function(){
       reject("Timeout");
@@ -37,10 +43,10 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
   gps.update(gpsSentence);
 
   gpsData = await gpsPromise
-  .catch( (error) => {
-    console.log(error);
-    res.sendStatus(500);
-  });
+    .catch( (error) => {
+      console.log(error);
+      resStatus = 500;
+    });
 
   var newData = {
 
@@ -53,68 +59,82 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
   soduDocSnapshot = await db.collection('sodus').doc(soduID).get()
     .catch( (error) => {
       console.log(error);
-      res.sendStatus(500);
+      resStatus = 500;
     });
 
-    owner = soduDocSnapshot.get('owner');
-    vehicle = soduDocSnapshot.get('vehicle');
+  owner = soduDocSnapshot.get('owner');
+  vehicle = soduDocSnapshot.get('vehicle');
    
-    vehicleDocRef = db.collection('users').doc(owner).collection('vehicles').doc(vehicle);
-    vehicleDocSnapShot = await vehicleDocRef.get()
+  vehicleDocRef = db.collection('vehicles').doc(vehicle);
+  vehicleDocSnapShot = await vehicleDocRef.get()
     .catch( (error) => {
       console.log(error);
-      res.sendStatus(500);
+      resStatus = 500;
     });
     
-    oldLocation = vehicleDocSnapShot.get('location');
-    oldSeatMask = vehicleDocSnapShot.get('seatMask');
+  oldLocation = vehicleDocSnapShot.get('location');
+  oldSeatMask = vehicleDocSnapShot.get('seatMask');
 
-    if(oldLocation == null){
+  if(oldLocation == null || oldSeatMask == null){
 
-      await vehicleDocRef.set(newData)
+    await vehicleDocRef.update(newData)
       .catch( (error) => {
         console.log(error);
-        res.sendStatus(500);
+        resStatus = 500;
       });
-    }
-    else{
 
-      var options = {
-          uri: 'https://maps.googleapis.com/maps/api/distancematrix/json',
-          qs: {
-            origins: gpsData.lat + ',' + gpsData.lon,
-            destinations: oldLocation.latitude + ','+ oldLocation.longitude,
-            mode: 'driving',
-            language: 'en',
-            key: disatnceMatrixAPIKey
-          },
-          json: true // Automatically parses the JSON string in the response
-      };
+    await vehicleDocRef.collection('snapshots').doc().set(newData)
+      .catch( (error) => {
+        console.log(error);
+        resStatus = 500;
+      });
+  }
+  else{
+
+    var options = {
+      uri: 'https://maps.googleapis.com/maps/api/distancematrix/json',
+      qs: {
+        origins: gpsData.lat + ',' + gpsData.lon,
+        destinations: oldLocation.latitude + ','+ oldLocation.longitude,
+        mode: 'driving',
+        language: 'en',
+        key: disatnceMatrixAPIKey
+      },
+      json: true // Automatically parses the JSON string in the response
+    };
      
-      distanceMatrixResponse = await rp(options)
+    distanceMatrixResponse = await rp(options)
       .catch( (error) => {
         console.log(error);
-        res.sendStatus(500);
+        resStatus = 500;
       });
 
-      distanceMatrixElement = distanceMatrixResponse.rows[0].elements[0];
+    distanceMatrixElement = distanceMatrixResponse.rows[0].elements[0];
 
-      if( distanceMatrixElement.status == 'OK'){
-        /* if distance greater 350m (distance between hall 7 and conti roundabout) */
-        if( distanceMatrixElement.distance.value >= 350 ){
-          await vehicleDocRef.update(newData)
+    if( distanceMatrixElement.status == 'OK'){
+
+      distance = distanceMatrixElement.distance.value;
+      /* if distance greater 350m (distance between hall 7 and conti roundabout) */
+      if( distance >= 350 && oldSeatMask != newData.seatMask ){
+        await vehicleDocRef.update(newData)
           .catch( (error) => {
             console.log(error);
-            res.sendStatus(500);
+            resStatus = 500;
           });
-        }
-      }
-      else{
-        res.sendStatus(500);
-      }
 
+        await vehicleDocRef.collection('snapshots').doc().set(newData)
+          .catch( (error) => {
+            console.log(error);
+            resStatus = 500;
+          });
+      }
+    }
+    else{
+      resStatus = 500;
     }
 
-    res.sendStatus(200);
+  }
+
+  res.sendStatus(resStatus);
 
 });
