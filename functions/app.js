@@ -5,6 +5,7 @@ var GPS = require('gps');
 var gps = new GPS;
 
 var distanceMatrix = require('./distanceMatrix.js');
+var seats = require('./seats.js')
 
 admin.initializeApp(functions.config().firebase);
 var db = admin.firestore();
@@ -84,3 +85,71 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
   res.sendStatus(200);
 
 });
+
+exports.setAmountMade = functions.firestore
+    .document('vehicles/{vehicle}/snapshots/{snapshot}')
+    .onCreate(async (snap, context) => {
+
+        const vehicle = context.params.vehicle;
+
+        try{
+          var vehicleDocRef = db.collection('vehicles').doc(vehicle);
+          numberOfSeats = await vehicleDocRef.get('numberOfSeats');
+          var snapshotQuerySnapShots = await vehicleDocRef
+                .collection('snapshots')
+                .orderBy('timeStamp')
+                .get();
+          
+        }catch(error){
+          console.log(error);
+          return;
+        }
+        
+        totalTripDistance = null;
+        docs = snapshotQuerySnapShots.docs;
+        size = snapshotQuerySnapShots;
+
+        for(i = 1; i <= numberOfSeats; i++){
+
+          j = 0
+          while(j < size){
+            seatMask = docs[j].get('seatMask');
+
+            if(seats.seatOccupied(seatMask, i)){
+              k = j+1
+              while(k < size){
+                seatMask = docs[k].get('seatMask');
+                if(seats.seatOccupied(seatMask, i)){
+                  k++;
+                }else{
+                  origin = doc[j].get('location')
+                  originTime = doc[j].get('timeStamp');
+                  
+                  destination = doc[k-1].get('location');
+                  destinationTime = doc[k-1].get('timeStamp');
+
+                  originLon = origin.longitude;
+                  originLat = origin.latitude;
+                  destinationLon = destination.longitude;
+                  destinationLat = destination.latitude;
+
+                  distance = await distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon);
+                  totalTripDistance = totalTripDistance + distance;
+                  j = k;
+                  break;
+                }
+              }
+            }else j++;
+          }
+        }
+
+        if(totalTripDistance != null){
+          amountMade = (0.8/350)*totalTripDistance; // rate learnt from averaging route distance
+          var newData = new Object();
+          newData.amountMade = amountMade;
+          await vehicleDocRef.update(newData)
+            .catch((error)=>{
+              console.log(error);
+            });
+        }
+    });
