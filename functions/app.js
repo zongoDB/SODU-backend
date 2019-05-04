@@ -43,7 +43,7 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
     var newData = {
 
       seatMask: seatMask,
-      timeStamp: admin.firestore.Timestamp.fromDate(gpsData.time),
+      timestamp: admin.firestore.Timestamp.fromDate(gpsData.time),
       location: new admin.firestore.GeoPoint(gpsData.lat,gpsData.lon),
 
     }
@@ -97,7 +97,7 @@ exports.setAmountMade = functions.firestore
           numberOfSeats = await vehicleDocRef.get('numberOfSeats');
           var snapshotQuerySnapShots = await vehicleDocRef
                 .collection('snapshots')
-                .orderBy('timeStamp')
+                .orderBy('timestamp')
                 .get();
           
         }catch(error){
@@ -123,10 +123,10 @@ exports.setAmountMade = functions.firestore
                   k++;
                 }else{
                   origin = doc[j].get('location')
-                  originTime = doc[j].get('timeStamp');
+                  originTime = doc[j].get('timestamp');
                   
                   destination = doc[k-1].get('location');
-                  destinationTime = doc[k-1].get('timeStamp');
+                  destinationTime = doc[k-1].get('timestamp');
 
                   originLon = origin.longitude;
                   originLat = origin.latitude;
@@ -153,3 +153,70 @@ exports.setAmountMade = functions.firestore
             });
         }
     });
+
+exports.getAmountPeriod =  functions.https.onRequest(async (req, res) => {
+    
+
+    startTime = req.body.startTime;
+    endTime = req.body.endTime;
+    
+    const vehicle = context.params.vehicle;
+
+    try{
+      var vehicleDocRef = db.collection('vehicles').doc(vehicle);
+      numberOfSeats = await vehicleDocRef.get('numberOfSeats');
+      var snapshotQuerySnapShots = await vehicleDocRef
+            .collection('snapshots')
+            .where('timestamp','>=',startTime)
+            .where('timestamp','<=',endTime)
+            .orderBy('timestamp')
+            .get();
+      
+    }catch(error){
+      console.log(error);
+      res.sendStatus(500);
+      return;
+    }
+    
+    totalTripDistance = 0;
+    docs = snapshotQuerySnapShots.docs;
+    size = snapshotQuerySnapShots;
+
+    for(i = 1; i <= numberOfSeats; i++){
+
+      j = 0
+      while(j < size){
+        seatMask = docs[j].get('seatMask');
+
+        if(seats.seatOccupied(seatMask, i)){
+          k = j+1
+          while(k < size){
+            seatMask = docs[k].get('seatMask');
+            if(seats.seatOccupied(seatMask, i)){
+              k++;
+            }else{
+              origin = doc[j].get('location')
+              originTime = doc[j].get('timestamp');
+              
+              destination = doc[k-1].get('location');
+              destinationTime = doc[k-1].get('timestamp');
+
+              originLon = origin.longitude;
+              originLat = origin.latitude;
+              destinationLon = destination.longitude;
+              destinationLat = destination.latitude;
+
+              distance = await distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon);
+              totalTripDistance = totalTripDistance + distance;
+              j = k;
+              break;
+            }
+          }
+        }else j++;
+      }
+    }
+
+  amountMade = (0.8/350)*totalTripDistance; // rate learnt from averaging route distance
+  res.status(200).send(amountMade);
+    
+});
