@@ -23,8 +23,8 @@ exports.getDistance = async function func( originLat, originLon, destinationLat,
 
     distanceMatrixElement = distanceMatrixResponse.rows[0].elements[0];
 
-    if( distanceMatrixElement.status == 'OK'){
-        return distanceMatrixElement.distance.value;
+    if( distanceMatrixElement.status === 'OK'){
+        return parseInt(distanceMatrixElement.distance.value, 10);
     }
 
     return null;

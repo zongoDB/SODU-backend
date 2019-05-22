@@ -23,17 +23,19 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
   try{
 
     gpsSentence = req.body.gps;
-    seatMask = parseInt(req.body.seat_mask, 10);
+    seatMask = req.body.seat_mask;
     soduID = req.body.ID;
 
+    console.log(gpsSentence+'\n'+ seatMask + '\n' + soduID);
+
     gpsPromise = new Promise(async (resolve, reject) => {
-      setTimeout(function(){
-        reject("Timeout");
+      setTimeout(()=>{
+        reject(new Error("gps promise timed out"));
         throw new Error('gps promise timed out');
       }, 1000000);
     });
 
-    gps.on('data', async function(data){
+    gps.on('data', async (data)=>{
       gpsPromise = Promise.resolve(data);
     });
     gps.update(gpsSentence);
@@ -59,7 +61,9 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
     oldLocation = vehicleDocSnapShot.get('location');
     oldSeatMask = vehicleDocSnapShot.get('seatMask');
 
-    if(oldLocation == null || oldSeatMask == null){
+    await vehicleDocRef.update(newData);
+    await vehicleDocRef.collection('snapshots').doc().set(newData);
+    if(oldLocation === null || oldSeatMask === null){
       await vehicleDocRef.update(newData);
       await vehicleDocRef.collection('snapshots').doc().set(newData);
     }
@@ -69,7 +73,7 @@ exports.soduHttp = functions.https.onRequest(async (req, res) => {
         .getDistance(gpsData.lat, gpsData.lon, oldLocation.latitude, oldLocation.longitude);
 
       /* if distance greater 350m (distance between hall 7 and conti roundabout) */
-      if( distance >= 350 && oldSeatMask != newData.seatMask ){
+      if( distance >= 350 && oldSeatMask !== newData.seatMask ){
         await vehicleDocRef.update(newData);
         await vehicleDocRef.collection('snapshots').doc().set(newData);
       }
@@ -107,18 +111,19 @@ exports.setAmountMade = functions.firestore
         
         totalTripDistance = null;
         docs = snapshotQuerySnapShots.docs;
-        size = snapshotQuerySnapShots;
+        size = snapshotQuerySnapShots.size;
 
+        distances = []; 
         for(i = 1; i <= numberOfSeats; i++){
 
           j = 0
           while(j < size){
-            seatMask = docs[j].get('seatMask');
+            seatMask = parseInt(docs[j].get('seatMask'));
 
             if(seats.seatOccupied(seatMask, i)){
               k = j+1
               while(k < size){
-                seatMask = docs[k].get('seatMask');
+                seatMask = parseInt(docs[k].get('seatMask')); 
                 if(seats.seatOccupied(seatMask, i)){
                   k++;
                 }else{
@@ -133,8 +138,7 @@ exports.setAmountMade = functions.firestore
                   destinationLon = destination.longitude;
                   destinationLat = destination.latitude;
 
-                  distance = await distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon);
-                  totalTripDistance = totalTripDistance + distance;
+                  distances.push(distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon));
                   j = k;
                   break;
                 }
@@ -143,7 +147,12 @@ exports.setAmountMade = functions.firestore
           }
         }
 
-        if(totalTripDistance != null){
+        await Promise.all(distances)
+        totalTripDistance = distance.reduce((total, num)=> {
+          return total + num;
+        });
+
+        if(totalTripDistance !== null){
           amountMade = (0.8/350)*totalTripDistance; // rate learnt from averaging route distance
           var newData = new Object();
           newData.amountMade = amountMade;
@@ -154,69 +163,69 @@ exports.setAmountMade = functions.firestore
         }
     });
 
-exports.getAmountPeriod =  functions.https.onRequest(async (req, res) => {
+// exports.getAmountPeriod =  functions.https.onRequest(async (req, res) => {
     
 
-    startTime = req.body.startTime;
-    endTime = req.body.endTime;
+//     startTime = req.body.startTime;
+//     endTime = req.body.endTime;
     
-    const vehicle = context.params.vehicle;
+//     const vehicle = context.params.vehicle;
 
-    try{
-      var vehicleDocRef = db.collection('vehicles').doc(vehicle);
-      numberOfSeats = await vehicleDocRef.get('numberOfSeats');
-      var snapshotQuerySnapShots = await vehicleDocRef
-            .collection('snapshots')
-            .where('timestamp','>=',startTime)
-            .where('timestamp','<=',endTime)
-            .orderBy('timestamp')
-            .get();
+//     try{
+//       var vehicleDocRef = db.collection('vehicles').doc(vehicle);
+//       numberOfSeats = await vehicleDocRef.get('numberOfSeats');
+//       var snapshotQuerySnapShots = await vehicleDocRef
+//             .collection('snapshots')
+//             .where('timestamp','>=',startTime)
+//             .where('timestamp','<=',endTime)
+//             .orderBy('timestamp')
+//             .get();
       
-    }catch(error){
-      console.log(error);
-      res.sendStatus(500);
-      return;
-    }
+//     }catch(error){
+//       console.log(error);
+//       res.sendStatus(500);
+//       return;
+//     }
     
-    totalTripDistance = 0;
-    docs = snapshotQuerySnapShots.docs;
-    size = snapshotQuerySnapShots;
+//     totalTripDistance = 0;
+//     docs = snapshotQuerySnapShots.docs;
+//     size = snapshotQuerySnapShots;
 
-    for(i = 1; i <= numberOfSeats; i++){
+//     for(i = 1; i <= numberOfSeats; i++){
 
-      j = 0
-      while(j < size){
-        seatMask = docs[j].get('seatMask');
+//       j = 0
+//       while(j < size){
+//         seatMask = docs[j].get('seatMask');
 
-        if(seats.seatOccupied(seatMask, i)){
-          k = j+1
-          while(k < size){
-            seatMask = docs[k].get('seatMask');
-            if(seats.seatOccupied(seatMask, i)){
-              k++;
-            }else{
-              origin = doc[j].get('location')
-              originTime = doc[j].get('timestamp');
+//         if(seats.seatOccupied(seatMask, i)){
+//           k = j+1
+//           while(k < size){
+//             seatMask = docs[k].get('seatMask');
+//             if(seats.seatOccupied(seatMask, i)){
+//               k++;
+//             }else{
+//               origin = doc[j].get('location')
+//               originTime = doc[j].get('timestamp');
               
-              destination = doc[k-1].get('location');
-              destinationTime = doc[k-1].get('timestamp');
+//               destination = doc[k-1].get('location');
+//               destinationTime = doc[k-1].get('timestamp');
 
-              originLon = origin.longitude;
-              originLat = origin.latitude;
-              destinationLon = destination.longitude;
-              destinationLat = destination.latitude;
+//               originLon = origin.longitude;
+//               originLat = origin.latitude;
+//               destinationLon = destination.longitude;
+//               destinationLat = destination.latitude;
 
-              distance = await distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon);
-              totalTripDistance = totalTripDistance + distance;
-              j = k;
-              break;
-            }
-          }
-        }else j++;
-      }
-    }
+//               distance = await distanceMatrix.getDistance(originLat, originLon, destinationLat, destinationLon);
+//               totalTripDistance = totalTripDistance + distance;
+//               j = k;
+//               break;
+//             }
+//           }
+//         }else j++;
+//       }
+//     }
 
-  amountMade = (0.8/350)*totalTripDistance; // rate learnt from averaging route distance
-  res.status(200).send(amountMade);
+//   amountMade = (0.8/350)*totalTripDistance; // rate learnt from averaging route distance
+//   res.status(200).send(amountMade);
     
-});
+// });
